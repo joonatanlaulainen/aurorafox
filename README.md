@@ -70,6 +70,31 @@ Clearing 7/10 needs `raw >= ~0.535`, which no single excellent factor can
 deliver on its own. A pristine sky during a geomagnetically dead week does not
 alert, and neither does a G2 storm under a solid overcast.
 
+### What the scale is anchored to
+
+The whole model is tuned to one fixed point: **at Tromsø, a fully clear region in
+full darkness with no moon lands just on 7.0 at Kp 3, and clears it decisively at
+Kp 4.** Everything else follows from that.
+
+| Kp | Score, perfect clear dark night |
+|---|---|
+| 0 | 4.3 |
+| 1 | 5.1 |
+| 2 | 6.0 |
+| **3** | **7.0** ← alert threshold |
+| 4 | 8.0 |
+| 5 | 9.0 |
+| 6+ | 10.0 |
+
+Roughly a point per Kp step, which is an emergent property of the calibration
+rather than a design goal — but a useful one to preserve if you retune it.
+
+That shape comes from a deliberately **non-linear** intensity curve
+(`0.20 + 0.80·(Kp/6)^1.3`). An earlier linear form put a geomagnetically dead
+Kp 0 night at 5.5/10 under a clear winter sky and let Kp 2 raise an alert. Both
+were too generous: quiet-time aurora at these latitudes is a faint static arc,
+while auroral power rises far faster than Kp itself does.
+
 ### Aurora potential — a band, not a ramp
 
 The oval is a ring around the *geomagnetic* pole. Its equatorward edge marches
@@ -92,9 +117,15 @@ using geographic latitude ranks those two backwards.
 
 The consequences are visible in the output. At Kp 0 only Tromsø is under the
 oval. Between Kp 2 and 5 the oval covers all four and geometry stops
-discriminating. Past Kp 6 the oval starts sliding south *past* Tromsø, and by
-Kp 9 Tromsø sits inside the polar cap with the aurora to its south — scoring
-below its own Kp 3 value. A `score ∝ Kp` model gets that exactly backwards.
+discriminating entirely. Past Kp 6 the oval slides south *past* Tromsø, which
+ends up inside the polar cap with the aurora to its south.
+
+So Tromsø's potential **peaks around Kp 6 and declines beyond it**, landing at
+Kp 9 back around its Kp 3 level and some 40% below Rovaniemi's. The claim is
+about where Tromsø peaks, not that a severe storm is bad there — at Kp 9 the sky
+is still lit up, just increasingly to the south and increasingly less well placed
+than sites further from the pole. A `score ∝ Kp` model has no way to express
+this at all.
 
 ### Cloud — regions, not points
 
@@ -191,16 +222,21 @@ conservative response. If the Kp forecast fails entirely, the run says so in
 ## Development
 
 ```bash
-uv run pytest              # 107 offline tests, no network
+uv run pytest              # 113 offline tests, no network
 uv run pytest -m live      # smoke tests against the real APIs
 ```
 
 The scale is anchored by a **calibration table** of named reference scenarios in
-`tests/test_scoring.py`, from "polar night, Kp 4, region clear, no moon" → 9.00
-down to "overcast, raining, twilight" → 1.27. To make the estimator harsher or
-more generous, change `SCORE_GAMMA`, the priors, or the tier confidences, then
-read off which scenarios moved. That is a far more legible way to tune it than
-adjusting magic numbers and hoping.
+`tests/test_scoring.py`, from "polar night, Kp 5, region clear, no moon" → 8.77
+down to "overcast, raining, twilight" → 1.19, with "polar night, Kp 3, fully
+clear, no moon" → 7.04 as the threshold anchor. To make the estimator harsher or
+more generous, change the intensity curve, `SCORE_GAMMA`, the priors, or the tier
+confidences, then read off which scenarios moved. That is a far more legible way
+to tune it than adjusting magic numbers and hoping.
+
+The intensity curve is the right lever for "it over-scores"; `SCORE_GAMMA` is a
+blunter one that compresses the whole range uniformly, barely moving the top end
+while flattening the middle.
 
 The live tests exist to catch the failure mode that actually bites: an upstream
 product quietly changing shape or horizon. `test_kp_forecast_still_stops_around_three_days`

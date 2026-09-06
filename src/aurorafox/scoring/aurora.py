@@ -53,10 +53,23 @@ OVAL_WIDTH_PER_KP = 1.2
 FALLOFF_EQUATORWARD = 5.0
 FALLOFF_POLEWARD = 4.5
 
-# Intrinsic brightness/dynamism, which does rise with Kp even when geometry is
-# already ideal: a quiet arc overhead is not a substorm.
-INTENSITY_BASE = 0.35
-INTENSITY_PER_KP = 0.13
+# Intrinsic brightness and dynamism of the display, given that the geometry is
+# already favourable: a quiet arc overhead is not a substorm.
+#
+# Deliberately non-linear in Kp. An earlier linear form (0.35 + 0.13*Kp) scored a
+# geomagnetically dead Kp 0 night at 5.5/10 under a clear winter sky, and let
+# Kp 2 clear the alert threshold. Both are too generous - quiet-time aurora at
+# these latitudes is a faint static arc, while auroral power rises far faster
+# than Kp itself does.
+#
+# Calibrated so that at Tromso, under a fully clear sky in full darkness with no
+# moon, Kp 3 lands just on the 7.0 threshold and Kp 4 clears it decisively. The
+# scale that falls out is close to one point per Kp step (Kp 1 -> 5.1,
+# 2 -> 6.0, 3 -> 7.0, 4 -> 8.0, 5 -> 9.0, 6 -> 10.0), which is worth preserving
+# if you retune it. Pinned by tests/test_scoring.py.
+INTENSITY_FLOOR = 0.20
+INTENSITY_REFERENCE_KP = 6.0
+INTENSITY_EXPONENT = 1.3
 
 # The 27-day outlook publishes each day's *largest* Kp. Typical conditions
 # during any given hour are meaningfully below that peak.
@@ -108,6 +121,17 @@ class AuroraFactors:
                 return f"oval {gap:.1f} deg to your north - at best a low glow on the horizon"
             return f"oval just {gap:.1f} deg north - aurora low in the northern sky"
         return "oval overhead - well placed"
+
+
+def aurora_intensity(kp: float) -> float:
+    """Intrinsic display intensity in 0..1, independent of where the site sits.
+
+    Saturates at :data:`INTENSITY_REFERENCE_KP`: past a strong storm the limit on
+    what you see stops being available power and starts being geometry, which the
+    band response already handles.
+    """
+    reach = (min(1.0, max(0.0, kp) / INTENSITY_REFERENCE_KP)) ** INTENSITY_EXPONENT
+    return clamp(INTENSITY_FLOOR + (1.0 - INTENSITY_FLOOR) * reach)
 
 
 def oval_edge_cgm(kp: float) -> float:
@@ -198,8 +222,7 @@ def aurora_potential(
         response, offset = band_response(city.cgm_latitude, kp)
         edge = oval_edge_cgm(kp)
         poleward = edge + oval_width(kp)
-        intensity = clamp(INTENSITY_BASE + INTENSITY_PER_KP * kp)
-        base = intensity * response
+        base = aurora_intensity(kp) * response
 
     weight = mlt_weight(when, city)
     potential = base * weight

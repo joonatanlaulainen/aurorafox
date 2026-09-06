@@ -14,6 +14,7 @@ import pytest
 
 from aurorafox.locations import get_city
 from aurorafox.scoring.aurora import (
+    aurora_intensity,
     aurora_potential,
     band_response,
     mlt_weight,
@@ -46,18 +47,22 @@ def at(iso: str) -> datetime:
 CALIBRATION = [
     #  name                                        aurora  sky  dark  moon  score
     ("everything perfect (unreachable in practice)", 1.00, 1.00, 1.00, 1.00, 10.00),
-    ("polar night, Kp 4, region clear, no moon", 0.87, 0.95, 1.00, 1.00, 9.00),
-    ("polar night, Kp 3, mostly clear, thin moon", 0.74, 0.85, 1.00, 0.97, 7.63),
-    ("polar night, Kp 2, clear region, no moon", 0.61, 0.90, 1.00, 1.00, 7.21),
-    # The September case: genuine activity and a clear sky, held under the
+    ("polar night, Kp 5, region clear, no moon", 0.831, 0.95, 1.00, 1.00, 8.77),
+    ("polar night, Kp 4, region clear, no moon", 0.672, 0.95, 1.00, 1.00, 7.82),
+    # The anchor the whole scale is tuned to: Kp 3 under a fully clear, fully
+    # dark, moonless sky at Tromso lands just on the alert threshold.
+    ("polar night, Kp 3, fully clear, no moon", 0.525, 1.00, 1.00, 1.00, 7.04),
+    ("polar night, Kp 3, mostly clear, thin moon", 0.525, 0.85, 1.00, 0.97, 6.35),
+    ("polar night, Kp 2, clear region, no moon", 0.392, 0.90, 1.00, 1.00, 5.72),
+    # The September case: genuine activity and a clear sky, held well under the
     # threshold purely because Tromso never gets properly dark that early.
-    ("Kp 3, clear, but only nautical twilight", 0.74, 0.90, 0.63, 1.00, 6.25),
-    ("Kp 1, clear, bright moon high", 0.48, 0.90, 1.00, 0.78, 5.59),
-    ("Kp 2, half the region clouded", 0.61, 0.55, 1.00, 1.00, 5.57),
-    ("Kp 1, broken cloud, full dark", 0.48, 0.45, 1.00, 1.00, 4.48),
-    ("quiet and overcast", 0.35, 0.15, 1.00, 1.00, 2.45),
-    ("overcast, raining, twilight", 0.35, 0.02, 0.50, 1.00, 1.27),
-    ("not dark at all", 0.90, 1.00, 0.00, 1.00, 1.00),
+    ("Kp 3, clear, but only nautical twilight", 0.525, 0.90, 0.63, 1.00, 5.25),
+    ("Kp 2, half the region clouded", 0.392, 0.55, 1.00, 1.00, 4.48),
+    ("Kp 1, clear, bright moon high", 0.278, 0.90, 1.00, 0.78, 4.27),
+    ("Kp 1, broken cloud, full dark", 0.278, 0.45, 1.00, 1.00, 3.48),
+    ("quiet (Kp 0) and overcast", 0.20, 0.15, 1.00, 1.00, 2.02),
+    ("overcast, raining, twilight", 0.20, 0.02, 0.50, 1.00, 1.19),
+    ("not dark at all", 0.831, 1.00, 0.00, 1.00, 1.00),
 ]
 
 
@@ -71,14 +76,59 @@ def test_calibration_table(name, aurora, sky, darkness, moon, expected):
     assert to_score(aurora * sky * darkness * moon) == pytest.approx(expected, abs=0.02)
 
 
+def test_tromso_threshold_anchor_is_kp_three_under_a_perfect_sky():
+    """The calibration this model is tuned to.
+
+    At Tromso, a fully clear region in full darkness with no moon should land
+    *just* on the 7.0 alert threshold at Kp 3, and clear it decisively at Kp 4.
+    Everything else about the aurora curve follows from these two points.
+    """
+    response, _ = band_response(TROMSO.cgm_latitude, 3)
+    assert response == pytest.approx(1.0), "Tromso must be inside the oval at Kp 3"
+
+    kp3 = to_score(aurora_intensity(3) * 1.0 * 1.0 * 1.0)
+    kp4 = to_score(aurora_intensity(4) * 1.0 * 1.0 * 1.0)
+    assert 7.0 <= kp3 <= 7.15, kp3
+    assert kp4 >= 8.0, kp4
+
+
+def test_kp_two_no_longer_alerts_on_a_clear_night():
+    """The over-scoring that prompted this calibration.
+
+    Under the previous linear intensity curve, Kp 2 with a clear sky scored 7.4
+    and raised an alert, and a geomagnetically dead Kp 0 night still scored 5.5.
+    """
+    assert to_score(aurora_intensity(2) * 1.0 * 1.0 * 1.0) < 7.0
+    assert to_score(aurora_intensity(0) * 1.0 * 1.0 * 1.0) < 5.0
+
+
+def test_intensity_curve_gives_roughly_one_point_per_kp_step():
+    """An emergent property worth preserving if the curve is ever retuned."""
+    scores = [to_score(aurora_intensity(kp)) for kp in range(1, 7)]
+    steps = [b - a for a, b in zip(scores, scores[1:])]
+    for step in steps:
+        assert 0.9 < step < 1.1, scores
+
+
+def test_intensity_is_monotonic_and_saturates():
+    previous = -1.0
+    for tenth in range(0, 100):
+        value = aurora_intensity(tenth / 10.0)
+        assert value >= previous
+        previous = value
+    assert aurora_intensity(0) == pytest.approx(0.20)
+    assert aurora_intensity(6) == pytest.approx(1.0)
+    assert aurora_intensity(9) == pytest.approx(1.0)
+
+
 def test_threshold_of_seven_demands_all_factors_together():
     """A 7 must not be reachable by one excellent factor carrying weak ones."""
     # Superb aurora, but the region is half clouded: not an alert.
     assert to_score(1.00 * 0.50 * 1.00 * 1.00) < 7.0
     # Pristine sky, but nothing happening geomagnetically: not an alert.
-    assert to_score(0.40 * 1.00 * 1.00 * 1.00) < 7.0
-    # Both genuinely good: an alert.
-    assert to_score(0.74 * 0.80 * 1.00 * 0.95) >= 7.0
+    assert to_score(aurora_intensity(1) * 1.00 * 1.00 * 1.00) < 7.0
+    # Genuine activity and a genuinely clear region: an alert.
+    assert to_score(aurora_intensity(4) * 0.90 * 1.00 * 0.97) >= 7.0
 
 
 def test_score_is_monotonic_in_every_factor():
@@ -127,22 +177,33 @@ def test_extreme_storms_push_the_oval_past_tromso():
     """The polar-cap effect: Tromso degrades at extreme Kp while others do not.
 
     This is the behaviour a naive `score ~ Kp` model gets wrong, and the reason
-    corrected geomagnetic latitude is carried per city.
+    corrected geomagnetic latitude is carried per city. Note the claim is about
+    where Tromso *peaks*, not that a great storm is bad there - at Kp 9 the sky
+    is still lit up, just increasingly to the south and increasingly less well
+    placed than sites further from the pole.
     """
     tromso_kp9, _ = band_response(TROMSO.cgm_latitude, 9)
     rovaniemi_kp9, _ = band_response(ROVANIEMI.cgm_latitude, 9)
     assert tromso_kp9 < 0.7
     assert rovaniemi_kp9 == pytest.approx(1.0)
 
-    # And in absolute terms Tromso at Kp 9 is worse than Tromso at a moderate Kp.
-    from aurorafox.scoring.aurora import INTENSITY_BASE, INTENSITY_PER_KP
-    from aurorafox.geo import clamp
+    def potential(city, kp):
+        response, _ = band_response(city.cgm_latitude, kp)
+        return response * aurora_intensity(kp)
 
-    def potential(kp):
-        response, _ = band_response(TROMSO.cgm_latitude, kp)
-        return response * clamp(INTENSITY_BASE + INTENSITY_PER_KP * kp)
+    # Tromso's potential peaks at moderate-to-high activity and falls away
+    # beyond it, ending at Kp 9 back around its Kp 3 level.
+    curve = [potential(TROMSO, kp) for kp in range(10)]
+    assert curve.index(max(curve)) == 6, curve
+    assert potential(TROMSO, 9) < potential(TROMSO, 6)
+    assert potential(TROMSO, 9) == pytest.approx(potential(TROMSO, 3), abs=0.1)
 
-    assert potential(9) < potential(3)
+    # Rovaniemi, further from the pole, plateaus at the maximum instead of
+    # falling away - the oval never passes it.
+    assert potential(ROVANIEMI, 9) == pytest.approx(1.0)
+    assert potential(ROVANIEMI, 9) >= potential(ROVANIEMI, 6)
+    # So in a severe storm Tromso is materially the worse bet of the two.
+    assert potential(TROMSO, 9) < 0.65 * potential(ROVANIEMI, 9)
 
 
 def test_site_position_reported_correctly():

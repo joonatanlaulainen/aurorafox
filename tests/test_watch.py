@@ -160,22 +160,22 @@ def test_long_range_clear_nights_reach_the_watchlist_instead(stub_sources):
         assert item.anchor
 
 
-def test_the_same_conditions_score_lower_further_out(stub_sources):
+def test_the_same_conditions_score_lower_further_out(stub_sources, monkeypatch):
     """Cloud and Kp are held identical at every hour, so the decline across the
     five days is the horizon-confidence shrink and nothing else.
 
-    The moon is *not* held constant - it genuinely moves night to night - so a
-    small wobble between adjacent nights is expected and allowed. The trend, and
-    the size of the total drop, are what the conservatism claim rests on.
+    The moon is pinned out for this test: it genuinely moves night to night, and
+    within the flat 72-120 h tier it would otherwise be the *only* thing varying,
+    producing wobble that has nothing to do with the property under test.
     """
+    monkeypatch.setattr("aurorafox.scoring.combine.moon_factor", lambda *a: 1.0)
     watch = run_aurora_watch(cities=["tromso"], days=5, now=MIDWINTER)
     nights = [n for n in watch.city("tromso").nights if n.dark_hours > 4 and not n.truncated]
     scores = [n.score for n in nights]
     assert len(scores) >= 4
-    for earlier, later in zip(scores, scores[1:]):
-        assert later <= earlier + 0.05, scores
-    assert scores[0] - scores[-1] > 1.5
-    assert scores[0] >= 7.0 and scores[-1] < 7.0
+    assert scores == sorted(scores, reverse=True), scores
+    assert scores[0] - scores[-1] > 1.0
+    assert scores[-1] < 7.0
 
 
 def test_a_truncated_final_night_never_alerts(stub_sources):
