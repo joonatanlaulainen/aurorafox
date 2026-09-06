@@ -66,7 +66,7 @@ raw = aurora_potential x sky_clarity x darkness x moon
 score = 1 + 9 * raw ** 0.62
 ```
 
-Clearing 7/10 needs `raw >= ~0.535`, which no single excellent factor can
+Clearing 7/10 needs `raw >= ~0.52`, which no single excellent factor can
 deliver on its own. A pristine sky during a geomagnetically dead week does not
 alert, and neither does a G2 storm under a solid overcast.
 
@@ -222,7 +222,7 @@ conservative response. If the Kp forecast fails entirely, the run says so in
 ## Development
 
 ```bash
-uv run pytest              # 113 offline tests, no network
+uv run pytest              # full offline suite (~130 tests), no network
 uv run pytest -m live      # smoke tests against the real APIs
 ```
 
@@ -242,6 +242,16 @@ The live tests exist to catch the failure mode that actually bites: an upstream
 product quietly changing shape or horizon. `test_kp_forecast_still_stops_around_three_days`
 will fail if SWPC ever extends that product, which would be a reason to revisit
 the horizon tiers.
+
+## Interpreting the output elsewhere
+
+[`docs/interpretation/`](docs/interpretation/) is a self-contained brief for
+handing a result to an LLM (or a person) that has no access to this repository —
+what the score means, the full JSON schema, worked examples, and the misreadings
+to avoid. Start at [`docs/interpretation/README.md`](docs/interpretation/README.md).
+
+Its numbers are asserted against the code by `tests/test_docs.py`, so it cannot
+silently drift.
 
 ## Limitations
 

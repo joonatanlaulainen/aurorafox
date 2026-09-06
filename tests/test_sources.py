@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -40,7 +41,7 @@ def test_metno_resamples_the_six_hourly_tail_onto_hourly_steps():
     times = sorted(forecast.samples)
     gaps = {
         int((b - a).total_seconds() // 3600)
-        for a, b in zip(times, times[1:])
+        for a, b in pairwise(times)
         # The fixture is deliberately non-contiguous, so ignore the deleted spans.
         if (b - a) <= timedelta(hours=6)
     }

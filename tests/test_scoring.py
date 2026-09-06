@@ -8,6 +8,7 @@ legible way to tune it than adjusting magic numbers and hoping.
 
 from __future__ import annotations
 
+from itertools import pairwise
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -105,7 +106,7 @@ def test_kp_two_no_longer_alerts_on_a_clear_night():
 def test_intensity_curve_gives_roughly_one_point_per_kp_step():
     """An emergent property worth preserving if the curve is ever retuned."""
     scores = [to_score(aurora_intensity(kp)) for kp in range(1, 7)]
-    steps = [b - a for a, b in zip(scores, scores[1:])]
+    steps = [b - a for a, b in pairwise(scores)]
     for step in steps:
         assert 0.9 < step < 1.1, scores
 
